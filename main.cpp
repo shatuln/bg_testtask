@@ -12,9 +12,9 @@
 
 using namespace cv;
 
-Point startPoint = Point(20,250);
+const Point startPoint = Point(20,250);
 
-void DrawRotatedRectangle(cv::Mat& image, cv::Point centerPoint, cv::Size rectangleSize, double rotationDegrees)
+void DrawRotatedRectangle(Mat& image, Point centerPoint, Size rectangleSize, double rotationDegrees)
 {
     Scalar color = Scalar(255, 0, 0);
     RotatedRect rotatedRectangle(centerPoint, rectangleSize, rotationDegrees);
@@ -65,6 +65,31 @@ bool GenerateSrc(int radius, float alpha) {
     return true;
 }
 
+void ComputeCoef(float& a, float& b, float& c, std::vector<Point> points) {
+    float x1 = points[0].x + FRAME_WIDTH * 0.25;
+    float x2 = points[1].x + FRAME_WIDTH * 0.25;
+    float x3 = points[2].x + FRAME_WIDTH * 0.25;
+    float y1 = points[0].y * -1;
+    float y2 = points[1].y * -1;
+    float y3 = points[2].y * -1; 
+    a = (y3 - (((x3*(y2-y1))+(x2*y1)-(x1*y2))/(x2-x1))) / (x3*(x3-x1-x2)+x1*x2);
+    b = ((y2-y1)/(x2-x1)) - a*(x1+x2);
+    c = ((x2*y1-x1*y2)/(x2-x1) + a*x1*x2);
+    return;
+}
+
+void DrawTargetRect(Mat& image, bool flag, float diam, float a = 0, float b = 0, float c = 0) {
+    float centerx, centery;
+    centerx = FRAME_WIDTH - 20;
+    if (flag)
+        centery = (a*(pow(centerx,2)) + b*centerx + c) * -1 - diam / 4;
+    else
+        centery = startPoint.y;
+    Rect target_rect = Rect(Point(centerx-10/2,centery-diam/2), Point(centerx+10/2,centery+diam/2));
+    rectangle(image, target_rect, Scalar(0,0,255), -1, 8, 0);
+    return;
+}
+
 bool AnalyzeInput() {
     VideoCapture cap("output.avi");
     Rect captureArea(Point(FRAME_WIDTH * 0.25, 0), Size(FRAME_WIDTH * 0.5, FRAME_HEIGHT));
@@ -78,13 +103,12 @@ bool AnalyzeInput() {
         return false;
     }
 
-    int globalradius = 0, radiuscount = 0;
+    int globalradius = 0, radiuscount = 0, diam = 0;
     Rect target_rect(0,0,0,0);
     int frames = cap.get(CAP_PROP_FRAME_COUNT);
     std::vector<Point> points;
     float a = 0, b = 0, c = 0;
     bool computeFlag = false;
-
     for (int i = 0; i < frames; ++i) {
         Mat analyzeMat(captureArea.size(), CV_8U), captureMat, tmp, gray;
         cap >> captureMat;
@@ -110,36 +134,15 @@ bool AnalyzeInput() {
             circle( gray, center, 3, Scalar(0,255,0), -1, 8, 0 );
             circle( gray, center, radius, Scalar(0,0,255), 3, 8, 0 );
             if (points.size() >= 3 && computeFlag == false) {
-                float x1 = points[0].x + FRAME_WIDTH * 0.25;
-                float x2 = points[1].x + FRAME_WIDTH * 0.25;
-                float x3 = points[2].x + FRAME_WIDTH * 0.25;
-                float y1 = points[0].y * -1;
-                float y2 = points[1].y * -1;
-                float y3 = points[2].y * -1; 
-                // float a = ((y3 - y1) / ((x3-x1)*(x3-x2))) - ((y2-y1)/((x2-x1)*(x3-x2)));
-                // float b = ((y2-y1)/(x2-x1)) - (a*(x2+x1));
-                // float c = (y1 - b*x1 - a*x1*x1);
-                a = (y3 - (((x3*(y2-y1))+(x2*y1)-(x1*y2))/(x2-x1))) / (x3*(x3-x1-x2)+x1*x2);
-                b = ((y2-y1)/(x2-x1)) - a*(x1+x2);
-                c = ((x2*y1-x1*y2)/(x2-x1) + a*x1*x2);
+                ComputeCoef(a, b, c, points);
                 computeFlag = true;
             }
-            int diam = globalradius / radiuscount * 2;
-            if (computeFlag) {
-                float centerx, centery;
-                centerx = FRAME_WIDTH - 20;
-                centery = (a*(pow(centerx,2)) + b*centerx + c) * -1 - diam / 4;
-                target_rect = Rect(Point(centerx-10/2,centery-diam/2), Point(centerx+10/2,centery+diam/2));
-            } else {
-                float centerx, centery;
-                centerx = FRAME_WIDTH - 20;
-                centery = startPoint.y;
-                target_rect = Rect(Point(centerx-10/2,centery-diam/2), Point(centerx+10/2,centery+diam/2));
-            }
+            diam = globalradius / radiuscount * 2;
         }
-        std::cout << "\r" << i+1 << "/" << frames << std::flush;
-        rectangle(captureMat, target_rect, Scalar(0,0,255), -1, 8, 0);
+        DrawTargetRect(captureMat, computeFlag, diam, a, b, c);
+        //rectangle(captureMat, target_rect, Scalar(0,0,255), -1, 8, 0);
         outputVideo << captureMat;
+        std::cout << "\r" << i+1 << "/" << frames << std::flush;
         // namedWindow("Display Image", WINDOW_AUTOSIZE);
         // imshow("Display Image", gray);
         // waitKey(0);
@@ -159,7 +162,7 @@ int main(int argc, char* argv[]) {
         }
     } else if (argc == 1) {
         if (!AnalyzeInput()) {
-            std::cout << "Cannot analyze input video" << std::endl;
+            std::cout << "\nCannot analyze input video";
             return -1;
         }
         std::cout << std::endl;
