@@ -12,10 +12,9 @@
 
 using namespace cv;
 
-const Point startPoint = Point(20,250);
-std::vector<Point> points;
+const Point startPoint = Point(20, FRAME_HEIGHT*0.25);
 
-void DrawRotatedRectangle(Mat& image, Point centerPoint, Size rectangleSize, double rotationDegrees)
+void DrawRotatedRectangle(Mat& image, const Point& centerPoint, const Size& rectangleSize, const double rotationDegrees)
 {
     Scalar color = Scalar(255, 0, 0);
     RotatedRect rotatedRectangle(centerPoint, rectangleSize, rotationDegrees);
@@ -30,7 +29,7 @@ void DrawRotatedRectangle(Mat& image, Point centerPoint, Size rectangleSize, dou
     return;
 }
 
-void ComputeCoef(float& a, float& b, float& c, std::vector<Point> points) {
+void ComputeCoef(float& a, float& b, float& c, const std::vector<Point>& points) {
     float x1 = points[0].x + FRAME_WIDTH * 0.25;
     float x2 = points[1].x + FRAME_WIDTH * 0.25;
     float x3 = points[2].x + FRAME_WIDTH * 0.25;
@@ -43,7 +42,7 @@ void ComputeCoef(float& a, float& b, float& c, std::vector<Point> points) {
     return;
 }
 
-void DrawTargetRect(Mat& image, float diam, float a = 0, float b = 0, float c = 0) {
+void DrawTargetRect(Mat& image, const float diam, float a = 0, float b = 0, float c = 0) {
     float centerx, centery;
     centerx = FRAME_WIDTH - 20;
     if (a != 0 || b != 0 || c != 0)
@@ -55,7 +54,7 @@ void DrawTargetRect(Mat& image, float diam, float a = 0, float b = 0, float c = 
     return;
 }
 
-Mat AnalyzeInputOneFrame(Mat captureMat, int radius) {
+void AnalyzeInputOneFrame(Mat& captureMat, const int radius, std::vector<Point>& points) {
 
     Rect captureArea(Point(FRAME_WIDTH * 0.25, 0), Size(FRAME_WIDTH * 0.5, FRAME_HEIGHT));
     int globalradius = 0, radiuscount = 0, diam = 0;
@@ -84,10 +83,10 @@ Mat AnalyzeInputOneFrame(Mat captureMat, int radius) {
         ComputeCoef(a, b, c, points);
     }
     DrawTargetRect(captureMat, radius * 2, a, b, c);
-    return captureMat;
+    return;
 }
 
-bool GenerateVideo(int radius, float alpha) {
+bool GenerateVideo(const int radius, const float alpha) {
     if (5.0 > alpha || alpha > 15.0) {
         std::cout << "Input valid alpha (from 5.0 to 15.0)" << std::endl;
         return false;
@@ -112,6 +111,7 @@ bool GenerateVideo(int radius, float alpha) {
         return false;
     }
 
+    std::vector<Point> points;
     float t = 0;
     while ((circle_center.x < (FRAME_WIDTH - 30 - (radius*0.75)) && circle_center.x > 0) && (circle_center.y < (FRAME_HEIGHT + 10) && circle_center.y > 0)) {
         mat = Scalar(255, 255, 255);
@@ -124,7 +124,8 @@ bool GenerateVideo(int radius, float alpha) {
 
         t+=0.3;
         
-        outputVideoFinal << AnalyzeInputOneFrame(mat, radius);
+        AnalyzeInputOneFrame(mat, radius, points);
+        outputVideoFinal << mat;
     }
     outputVideo.release();
     outputVideoFinal.release();
