@@ -13,6 +13,7 @@
 using namespace cv;
 
 const Point startPoint = Point(20,250);
+std::vector<Point> points;
 
 void DrawRotatedRectangle(Mat& image, Point centerPoint, Size rectangleSize, double rotationDegrees)
 {
@@ -29,7 +30,64 @@ void DrawRotatedRectangle(Mat& image, Point centerPoint, Size rectangleSize, dou
     return;
 }
 
-bool GenerateSrc(int radius, float alpha) {
+void ComputeCoef(float& a, float& b, float& c, std::vector<Point> points) {
+    float x1 = points[0].x + FRAME_WIDTH * 0.25;
+    float x2 = points[1].x + FRAME_WIDTH * 0.25;
+    float x3 = points[2].x + FRAME_WIDTH * 0.25;
+    float y1 = points[0].y * -1;
+    float y2 = points[1].y * -1;
+    float y3 = points[2].y * -1; 
+    a = (y3 - (((x3*(y2-y1))+(x2*y1)-(x1*y2))/(x2-x1))) / (x3*(x3-x1-x2)+x1*x2);
+    b = ((y2-y1)/(x2-x1)) - a*(x1+x2);
+    c = ((x2*y1-x1*y2)/(x2-x1) + a*x1*x2);
+    return;
+}
+
+void DrawTargetRect(Mat& image, float diam, float a = 0, float b = 0, float c = 0) {
+    float centerx, centery;
+    centerx = FRAME_WIDTH - 20;
+    if (a != 0 || b != 0 || c != 0)
+        centery = (a*(pow(centerx,2)) + b*centerx + c) * -1 - diam / 4;
+    else
+        centery = startPoint.y;
+    Rect target_rect = Rect(Point(centerx-10/2,centery-diam/2), Point(centerx+10/2,centery+diam/2));
+    rectangle(image, target_rect, Scalar(0,0,255), -1, 8, 0);
+    return;
+}
+
+Mat AnalyzeInputOneFrame(Mat captureMat, int radius) {
+
+    Rect captureArea(Point(FRAME_WIDTH * 0.25, 0), Size(FRAME_WIDTH * 0.5, FRAME_HEIGHT));
+    int globalradius = 0, radiuscount = 0, diam = 0;
+    float a = 0, b = 0, c = 0;
+    Mat analyzeMat(captureArea.size(), CV_8U), tmp, gray;
+    tmp = captureMat(captureArea);
+    tmp.copyTo(analyzeMat);
+    cvtColor(analyzeMat, gray, COLOR_BGR2GRAY);
+    blur(gray, gray, Size(3,3), Point(-1,-1));
+    std::vector<Vec3f> circles;
+    HoughCircles(gray, circles, HOUGH_GRADIENT, 2, gray.rows/4, 100, 20 );
+    rectangle(captureMat, captureArea, Scalar(230, 230, 230));
+    if (circles.size() == 1) {
+        Point center(cvRound(circles[0][0]), cvRound(circles[0][1]));
+        if (center.x < (analyzeMat.cols/3) && center.x > (30) && points.size() < 1) {
+            points.push_back(center);
+        } else if (center.x < (analyzeMat.cols/3*2) && center.x > (analyzeMat.cols/3) && points.size() < 2) {
+            points.push_back(center);
+        } else if (center.x < analyzeMat.cols && center.x > (analyzeMat.cols/3*2) && points.size() < 3) {
+            points.push_back(center);
+        }
+        // circle(gray, center, 3, Scalar(0,255,0), -1, 8, 0);
+        // circle(gray, center, radius, Scalar(0,0,255), 3, 8, 0);
+    }
+    if (points.size() >= 3) {
+        ComputeCoef(a, b, c, points);
+    }
+    DrawTargetRect(captureMat, radius * 2, a, b, c);
+    return captureMat;
+}
+
+bool GenerateVideo(int radius, float alpha) {
     if (5.0 > alpha || alpha > 15.0) {
         std::cout << "Input valid alpha (from 5.0 to 15.0)" << std::endl;
         return false;
@@ -48,8 +106,14 @@ bool GenerateSrc(int radius, float alpha) {
         return false;
     }
 
+    VideoWriter outputVideoFinal("output_final.avi", VideoWriter::fourcc('D','I','V','X'), 25, Size(FRAME_WIDTH, FRAME_HEIGHT), true);
+    if (!outputVideoFinal.isOpened()) {
+        std::cout << "can't open final output video" << std::endl;
+        return false;
+    }
+
     float t = 0;
-    while ((circle_center.x < (FRAME_WIDTH + 10) && circle_center.x > 0) && (circle_center.y < (FRAME_HEIGHT + 10) && circle_center.y > 0)) {
+    while ((circle_center.x < (FRAME_WIDTH - 30 - (radius*0.75)) && circle_center.x > 0) && (circle_center.y < (FRAME_HEIGHT + 10) && circle_center.y > 0)) {
         mat = Scalar(255, 255, 255);
         circle_center.x = startPoint.x + v0 * t * cos(alpha * CV_PI / 180.0);
         circle_center.y = startPoint.y - v0 * t * sin(alpha * CV_PI / 180.0) + (g * pow(t, 2)) / 2;
@@ -59,113 +123,23 @@ bool GenerateSrc(int radius, float alpha) {
         outputVideo << mat;
 
         t+=0.3;
+        
+        outputVideoFinal << AnalyzeInputOneFrame(mat, radius);
     }
     outputVideo.release();
+    outputVideoFinal.release();
 
     return true;
-}
-
-void ComputeCoef(float& a, float& b, float& c, std::vector<Point> points) {
-    float x1 = points[0].x + FRAME_WIDTH * 0.25;
-    float x2 = points[1].x + FRAME_WIDTH * 0.25;
-    float x3 = points[2].x + FRAME_WIDTH * 0.25;
-    float y1 = points[0].y * -1;
-    float y2 = points[1].y * -1;
-    float y3 = points[2].y * -1; 
-    a = (y3 - (((x3*(y2-y1))+(x2*y1)-(x1*y2))/(x2-x1))) / (x3*(x3-x1-x2)+x1*x2);
-    b = ((y2-y1)/(x2-x1)) - a*(x1+x2);
-    c = ((x2*y1-x1*y2)/(x2-x1) + a*x1*x2);
-    return;
-}
-
-void DrawTargetRect(Mat& image, bool flag, float diam, float a = 0, float b = 0, float c = 0) {
-    float centerx, centery;
-    centerx = FRAME_WIDTH - 20;
-    if (flag)
-        centery = (a*(pow(centerx,2)) + b*centerx + c) * -1 - diam / 4;
-    else
-        centery = startPoint.y;
-    Rect target_rect = Rect(Point(centerx-10/2,centery-diam/2), Point(centerx+10/2,centery+diam/2));
-    rectangle(image, target_rect, Scalar(0,0,255), -1, 8, 0);
-    return;
-}
-
-bool AnalyzeInput() {
-    VideoCapture cap("output.avi");
-    Rect captureArea(Point(FRAME_WIDTH * 0.25, 0), Size(FRAME_WIDTH * 0.5, FRAME_HEIGHT));
-    if (!cap.isOpened()) {
-        std::cout << "can't open input video" << std::endl;
-        return false;
-    }
-    VideoWriter outputVideo("output_final.avi", cap.get(CAP_PROP_FOURCC), cap.get(CAP_PROP_FPS), Size(cap.get(CAP_PROP_FRAME_WIDTH),cap.get(CAP_PROP_FRAME_HEIGHT)), true);
-    if (!outputVideo.isOpened()) {
-        std::cout << "can't open final output video" << std::endl;
-        return false;
-    }
-
-    int globalradius = 0, radiuscount = 0, diam = 0;
-    Rect target_rect(0,0,0,0);
-    int frames = cap.get(CAP_PROP_FRAME_COUNT);
-    std::vector<Point> points;
-    float a = 0, b = 0, c = 0;
-    bool computeFlag = false;
-    for (int i = 0; i < frames; ++i) {
-        Mat analyzeMat(captureArea.size(), CV_8U), captureMat, tmp, gray;
-        cap >> captureMat;
-        tmp = captureMat(captureArea);
-        tmp.copyTo(analyzeMat);
-        cvtColor(analyzeMat, gray, COLOR_BGR2GRAY);
-        blur(gray, gray, Size(3,3), Point(-1,-1));
-        std::vector<Vec3f> circles;
-        HoughCircles(gray, circles, HOUGH_GRADIENT, 2, gray.rows/4, 100, 20 );
-        rectangle(captureMat, captureArea, Scalar(230, 230, 230));
-        if (!circles.size() == 0 && circles.size() == 1) {
-            Point center(cvRound(circles[0][0]), cvRound(circles[0][1]));
-            if (center.x < (analyzeMat.cols/3) && center.x > (30) && points.size() < 1) {
-                points.push_back(center);
-            } else if (center.x < (analyzeMat.cols/3*2) && center.x > (analyzeMat.cols/3) && points.size() < 2) {
-                points.push_back(center);
-            } else if (center.x < analyzeMat.cols && center.x > (analyzeMat.cols/3*2) && points.size() < 3) {
-                points.push_back(center);
-            }
-            int radius = cvRound(circles[0][2]);
-            globalradius += radius;
-            radiuscount++;
-            circle( gray, center, 3, Scalar(0,255,0), -1, 8, 0 );
-            circle( gray, center, radius, Scalar(0,0,255), 3, 8, 0 );
-            if (points.size() >= 3 && computeFlag == false) {
-                ComputeCoef(a, b, c, points);
-                computeFlag = true;
-            }
-            diam = globalradius / radiuscount * 2;
-        }
-        DrawTargetRect(captureMat, computeFlag, diam, a, b, c);
-        //rectangle(captureMat, target_rect, Scalar(0,0,255), -1, 8, 0);
-        outputVideo << captureMat;
-        std::cout << "\r" << i+1 << "/" << frames << std::flush;
-        // namedWindow("Display Image", WINDOW_AUTOSIZE);
-        // imshow("Display Image", gray);
-        // waitKey(0);
-    }
-        
-    return computeFlag;
-    
 }
 
 int main(int argc, char* argv[]) {
     if (argc == 3) {
         int radius = std::stoi(argv[1]);
         float alpha = std::stoi(argv[2]);
-        if (!GenerateSrc(radius, alpha)) {
+        if (!GenerateVideo(radius, alpha)) {
             std::cout << "Cannot generate source video" << std::endl;
             return -1;
         }
-    } else if (argc == 1) {
-        if (!AnalyzeInput()) {
-            std::cout << "\nCannot analyze input video";
-            return -1;
-        }
-        std::cout << std::endl;
     } else {
         std::cout << "Arguments count is invalid" << std::endl;
         return -1;

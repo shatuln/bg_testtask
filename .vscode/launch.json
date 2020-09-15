@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/test_prj",
-            "args": [],
+            "args": ["15", "15"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
